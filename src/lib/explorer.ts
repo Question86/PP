@@ -58,6 +58,7 @@ export async function waitForTransaction(
 /**
  * Verify that a transaction matches the expected payment intent
  * Checks platform output and all creator outputs
+ * UTXO-SAFE: Sums all outputs per address (handles multiple outputs to same address)
  */
 export async function verifyPayment(
   txId: string,
@@ -78,75 +79,67 @@ export async function verifyPayment(
     return result;
   }
 
-  // Check confirmations (optional - require at least 1 for safety)
+  // Check confirmations (REQUIRED - must have at least 1 for valid=true)
   if (tx.confirmationsCount < 1) {
     result.errors.push('Transaction not yet confirmed');
-    // Don't return - continue validation but mark as unconfirmed
+    return result;
   }
 
-  // Verify platform output
-  const platformOutput = tx.outputs.find(
-    (output) =>
-      output.address.toLowerCase() ===
-      paymentIntent.platformOutput.address.toLowerCase()
-  );
+  // Build address -> total amount map (UTXO-safe: sum all outputs per address)
+  const addressSums = new Map<string, bigint>();
+  for (const output of tx.outputs) {
+    const addr = output.address.toLowerCase();
+    const current = addressSums.get(addr) || 0n;
+    addressSums.set(addr, current + BigInt(output.value));
+  }
 
-  if (!platformOutput) {
-    result.errors.push('Platform output not found');
+  // Verify platform output sum
+  const platformAddr = paymentIntent.platformOutput.address.toLowerCase();
+  const platformSum = addressSums.get(platformAddr) || 0n;
+  const expectedPlatformAmount = BigInt(paymentIntent.platformOutput.amount);
+
+  if (platformSum >= expectedPlatformAmount) {
+    result.platformOutputValid = true;
   } else {
-    const expectedAmount = BigInt(paymentIntent.platformOutput.amount);
-    const actualAmount = BigInt(platformOutput.value);
-
-    if (actualAmount >= expectedAmount) {
-      result.platformOutputValid = true;
-    } else {
-      result.errors.push(
-        `Platform output amount insufficient: expected ${expectedAmount}, got ${actualAmount}`
-      );
-    }
-
-    // Check R4 register for composition ID
-    if (
-      platformOutput.additionalRegisters &&
-      platformOutput.additionalRegisters.R4
-    ) {
-      const expectedCompositionId = paymentIntent.compositionId.toString();
-      const actualCompositionId = decodeR4Register(
-        platformOutput.additionalRegisters.R4
-      );
-      if (actualCompositionId === expectedCompositionId) {
-        result.registersValid = true;
-      }
-    }
+    result.errors.push(
+      `Platform output sum insufficient: expected ${expectedPlatformAmount}, got ${platformSum}`
+    );
   }
 
-  // Verify creator outputs
+  // Verify creator output sums
   for (const expectedCreator of paymentIntent.creatorOutputs) {
-    const creatorOutput = tx.outputs.find(
-      (output) =>
-        output.address.toLowerCase() === expectedCreator.address.toLowerCase()
-    );
-
-    if (!creatorOutput) {
-      result.errors.push(`Creator output not found: ${expectedCreator.address}`);
-      result.creatorOutputsValid.push(false);
-      continue;
-    }
-
+    const creatorAddr = expectedCreator.address.toLowerCase();
+    const creatorSum = addressSums.get(creatorAddr) || 0n;
     const expectedAmount = BigInt(expectedCreator.amount);
-    const actualAmount = BigInt(creatorOutput.value);
 
-    if (actualAmount >= expectedAmount) {
+    if (creatorSum >= expectedAmount) {
       result.creatorOutputsValid.push(true);
     } else {
       result.errors.push(
-        `Creator output amount insufficient for ${expectedCreator.address}: expected ${expectedAmount}, got ${actualAmount}`
+        `Creator output sum insufficient for ${expectedCreator.address}: expected ${expectedAmount}, got ${creatorSum}`
       );
       result.creatorOutputsValid.push(false);
     }
   }
 
-  // Overall validation
+  // Check R4 register for composition ID (INFORMATIONAL ONLY - does not affect payout validity)
+  const platformOutput = tx.outputs.find(
+    (output) => output.address.toLowerCase() === platformAddr
+  );
+  if (
+    platformOutput?.additionalRegisters &&
+    platformOutput.additionalRegisters.R4
+  ) {
+    const expectedCompositionId = paymentIntent.compositionId.toString();
+    const actualCompositionId = decodeR4Register(
+      platformOutput.additionalRegisters.R4
+    );
+    if (actualCompositionId === expectedCompositionId) {
+      result.registersValid = true;
+    }
+  }
+
+  // Overall validation: platform sum valid + all creator sums valid + no errors
   result.valid =
     result.platformOutputValid &&
     result.creatorOutputsValid.every((v) => v) &&

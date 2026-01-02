@@ -61,34 +61,42 @@ export async function POST(request: NextRequest) {
       platform_fee_nanoerg: platformFee,
     });
 
-    // Get creator payout addresses for each snippet via JOIN
-    const itemsWithCreators = await Promise.all(
-      selection.candidates.map(async (candidate, index) => {
-        // Single source of truth: DB JOIN snippet_versions -> snippets -> creators
-        const [rows] = await pool.execute<RowDataPacket[]>(
-          `SELECT c.payout_address
-           FROM snippet_versions sv
-           INNER JOIN snippets s ON s.id = sv.snippet_id
-           INNER JOIN creators c ON c.id = s.creator_id
-           WHERE sv.id = ?`,
-          [candidate.snippet_version_id]
-        );
-
-        if (!rows[0]) {
-          throw new Error(`Creator not found for snippet version ${candidate.snippet_version_id}`);
-        }
-
-        const creatorPayoutAddress = rows[0].payout_address;
-
-        return {
-          composition_id: compositionId,
-          snippet_version_id: candidate.snippet_version_id,
-          creator_payout_address: creatorPayoutAddress,
-          price_nanoerg: candidate.price_nanoerg,
-          position: index,
-        };
-      })
+    // Get creator payout addresses for ALL snippets in ONE query (no N+1)
+    const snippetVersionIds = selection.candidates.map(c => c.snippet_version_id);
+    const placeholders = snippetVersionIds.map(() => '?').join(',');
+    
+    const [rows] = await pool.execute<RowDataPacket[]>(
+      `SELECT sv.id as snippet_version_id, c.payout_address
+       FROM snippet_versions sv
+       INNER JOIN snippets s ON s.id = sv.snippet_id
+       INNER JOIN creators c ON c.id = s.creator_id
+       WHERE sv.id IN (${placeholders})`,
+      snippetVersionIds
     );
+
+    // Build map: snippet_version_id -> payout_address
+    const payoutMap = new Map<number, string>();
+    for (const row of rows) {
+      payoutMap.set(row.snippet_version_id, row.payout_address);
+    }
+
+    // Verify all selected snippets have creator addresses (fail fast if missing)
+    for (const candidate of selection.candidates) {
+      if (!payoutMap.has(candidate.snippet_version_id)) {
+        throw new Error(
+          `Creator not found for snippet version ${candidate.snippet_version_id}`
+        );
+      }
+    }
+
+    // Build composition items with resolved payout addresses
+    const itemsWithCreators = selection.candidates.map((candidate, index) => ({
+      composition_id: compositionId,
+      snippet_version_id: candidate.snippet_version_id,
+      creator_payout_address: payoutMap.get(candidate.snippet_version_id)!,
+      price_nanoerg: candidate.price_nanoerg,
+      position: index,
+    }));
 
     // Create composition items
     await createCompositionItems(itemsWithCreators);

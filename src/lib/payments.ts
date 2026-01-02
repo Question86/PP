@@ -44,8 +44,23 @@ export async function buildPaymentTransaction(
 ): Promise<BuildResult> {
   const { paymentIntent, userAddress, utxos } = params;
 
+  // Validate PaymentIntent totals match
+  const platformAmount = BigInt(paymentIntent.platformOutput.amount);
+  const creatorsTotal = paymentIntent.creatorOutputs.reduce(
+    (sum, output) => sum + BigInt(output.amount),
+    0n
+  );
+  const calculatedTotal = platformAmount + creatorsTotal;
+  const declaredTotal = BigInt(paymentIntent.totalRequired);
+
+  if (calculatedTotal !== declaredTotal) {
+    throw new Error(
+      `PaymentIntent mismatch: platform(${platformAmount}) + creators(${creatorsTotal}) = ${calculatedTotal}, but totalRequired=${declaredTotal}`
+    );
+  }
+
   // Calculate total required
-  const requiredAmount = BigInt(paymentIntent.totalRequired);
+  const requiredAmount = declaredTotal;
   const fee = BigInt(ERGO.RECOMMENDED_MIN_FEE_VALUE);
   const totalNeeded = requiredAmount + fee;
 
@@ -62,8 +77,26 @@ export async function buildPaymentTransaction(
     );
   }
 
-  // Calculate change
-  const changeValue = totalInputValue - requiredAmount - fee;
+  // Calculate estimated change (actual change handled by TransactionBuilder)
+  const estimatedChange = totalInputValue - requiredAmount - fee;
+
+  // CRITICAL: Validate all output amounts >= MIN_BOX_VALUE
+  const minBoxValue = BigInt(ERGO.MIN_BOX_VALUE);
+  
+  if (platformAmount < minBoxValue) {
+    throw new Error(
+      `Platform output (${platformAmount}) below minimum box value (${minBoxValue})`
+    );
+  }
+
+  for (const creatorOutput of paymentIntent.creatorOutputs) {
+    const amount = BigInt(creatorOutput.amount);
+    if (amount < minBoxValue) {
+      throw new Error(
+        `Creator output to ${creatorOutput.address} (${amount}) below minimum box value (${minBoxValue})`
+      );
+    }
+  }
 
   // Get current blockchain height
   const currentHeight = await getCurrentHeight();
@@ -79,7 +112,7 @@ export async function buildPaymentTransaction(
   // Output 1: Platform Fee
   txBuilder.to(
     new OutputBuilder(
-      BigInt(paymentIntent.platformOutput.amount),
+      platformAmount,
       paymentIntent.platformOutput.address
     ).addTokens([]
     ).setAdditionalRegisters({
@@ -100,17 +133,8 @@ export async function buildPaymentTransaction(
     );
   }
 
-  // Output N+1: Change back to user
-  if (changeValue > 0) {
-    txBuilder.to(
-      new OutputBuilder(changeValue, userAddress)
-    );
-  }
-
-  // Configure fee
+  // Configure fee and change handling
   txBuilder.payFee(fee);
-
-  // Send change to user
   txBuilder.sendChangeTo(userAddress);
 
   // Build unsigned transaction
@@ -121,7 +145,7 @@ export async function buildPaymentTransaction(
     totalInputValue,
     totalOutputValue: requiredAmount,
     fee,
-    changeValue,
+    changeValue: estimatedChange,
   };
 }
 
@@ -131,11 +155,20 @@ export async function buildPaymentTransaction(
 
 /**
  * Greedy UTXO selection algorithm
- * Selects smallest UTXOs first until required amount is met
+ * Selects smallest ERG-only UTXOs first to avoid burning tokens
  */
 function selectUtxos(utxos: ErgoUTXO[], requiredAmount: bigint): ErgoUTXO[] {
+  // Filter to ERG-only boxes (no tokens) to prevent accidental token burn
+  const ergOnlyUtxos = utxos.filter(utxo => !utxo.assets || utxo.assets.length === 0);
+  
+  if (ergOnlyUtxos.length === 0) {
+    throw new Error(
+      'No ERG-only UTXOs available. Token preservation not yet implemented.'
+    );
+  }
+
   // Sort by value ascending (smallest first)
-  const sortedUtxos = [...utxos].sort((a, b) => {
+  const sortedUtxos = [...ergOnlyUtxos].sort((a, b) => {
     const aVal = BigInt(a.value);
     const bVal = BigInt(b.value);
     return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
@@ -290,13 +323,18 @@ export function validatePaymentIntent(
   intent: PaymentIntent
 ): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
+  const minBoxValue = BigInt(ERGO.MIN_BOX_VALUE);
 
   // Check platform output
   if (!intent.platformOutput.address || intent.platformOutput.address.length < 10) {
     errors.push('Invalid platform address');
   }
-  if (BigInt(intent.platformOutput.amount) <= 0) {
+  const platformAmount = BigInt(intent.platformOutput.amount);
+  if (platformAmount <= 0) {
     errors.push('Platform amount must be positive');
+  }
+  if (platformAmount < minBoxValue) {
+    errors.push(`Platform amount (${platformAmount}) below minimum box value (${minBoxValue})`);
   }
 
   // Check creator outputs
@@ -308,9 +346,23 @@ export function validatePaymentIntent(
     if (!output.address || output.address.length < 10) {
       errors.push(`Invalid creator address: ${output.address}`);
     }
-    if (BigInt(output.amount) <= 0) {
+    const amount = BigInt(output.amount);
+    if (amount <= 0) {
       errors.push(`Creator amount must be positive: ${output.address}`);
     }
+    if (amount < minBoxValue) {
+      errors.push(`Creator amount to ${output.address} (${amount}) below minimum box value (${minBoxValue})`);
+    }
+  }
+
+  // Check for duplicate creator addresses (should be aggregated)
+  const addressSet = new Set<string>();
+  for (const output of intent.creatorOutputs) {
+    const addr = output.address.toLowerCase();
+    if (addressSet.has(addr)) {
+      errors.push(`Duplicate creator address found: ${output.address}. Creator outputs must be aggregated.`);
+    }
+    addressSet.add(addr);
   }
 
   // Check total calculation
