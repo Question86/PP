@@ -4,11 +4,11 @@
 import mysql from 'mysql2/promise';
 import { DATABASE_URL } from './config';
 
-let pool: mysql.Pool | null = null;
+let poolInstance: mysql.Pool | null = null;
 
 export function getDbPool(): mysql.Pool {
-  if (!pool) {
-    pool = mysql.createPool({
+  if (!poolInstance) {
+    poolInstance = mysql.createPool({
       uri: DATABASE_URL,
       waitForConnections: true,
       connectionLimit: 10,
@@ -17,21 +17,24 @@ export function getDbPool(): mysql.Pool {
       keepAliveInitialDelay: 0,
     });
   }
-  return pool;
+  return poolInstance;
 }
+
+// Export pool as getDbPool for compatibility
+export const pool = getDbPool();
 
 export async function query<T = any>(
   sql: string,
   params?: any[]
 ): Promise<T> {
-  const pool = getDbPool();
-  const [rows] = await pool.execute(sql, params);
+  const dbPool = getDbPool();
+  const [rows] = await dbPool.execute(sql, params);
   return rows as T;
 }
 
 export async function closePool(): Promise<void> {
-  if (pool) {
-    await pool.end();
-    pool = null;
+  if (poolInstance) {
+    await poolInstance.end();
+    poolInstance = null;
   }
 }

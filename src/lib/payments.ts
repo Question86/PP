@@ -9,8 +9,8 @@ import {
   SByte,
   SInt,
 } from '@fleet-sdk/core';
-import type { Box, UnsignedTransaction } from '@fleet-sdk/common';
-import type { PaymentIntent, ErgoUTXO } from '../types/v2';
+import type { Box } from '@fleet-sdk/common';
+import type { PaymentIntent, ErgoUTXO, UnsignedTransaction } from '../types/v2';
 import { ERGO } from './config_v2';
 
 // =====================================================
@@ -196,20 +196,20 @@ function selectUtxos(utxos: ErgoUTXO[], requiredAmount: bigint): ErgoUTXO[] {
 /**
  * Encode composition ID as bytes for R4 register
  */
-function encodeCompositionId(compositionId: number): string {
+function encodeCompositionId(compositionId: number) {
   const bytes = Buffer.from(compositionId.toString(), 'utf-8');
-  return SConstant(SColl(SByte, Array.from(bytes))).toHex();
+  return SConstant(SColl(SByte, Array.from(bytes)));
 }
 
 /**
  * Encode snippet version IDs as int array for R5 register
  */
-function encodeSnippetVersionIds(ids: number[]): string {
+function encodeSnippetVersionIds(ids: number[]) {
   // For simplicity, encode as comma-separated string in bytes
   // Production: Use proper array encoding
   const str = ids.join(',');
   const bytes = Buffer.from(str, 'utf-8');
-  return SConstant(SColl(SByte, Array.from(bytes))).toHex();
+  return SConstant(SColl(SByte, Array.from(bytes)));
 }
 
 // =====================================================

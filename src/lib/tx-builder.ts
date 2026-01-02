@@ -12,7 +12,7 @@ import {
   SByte,
   SInt,
 } from '@fleet-sdk/core';
-import { hexToBytes } from '@fleet-sdk/common';
+import { hexToBytes } from '@/lib/crypto';
 import { 
   ErgoUTXO, 
   MintTransactionInputs 
@@ -47,7 +47,7 @@ export async function buildMintTransaction(
   } = inputs;
 
   // Select UTXOs for funding (simple greedy selection)
-  const requiredAmount = BigInt(NFT_BOX_VALUE + SERVICE_FEE_NANOERG + RECOMMENDED_MIN_FEE_VALUE);
+  const requiredAmount = BigInt(NFT_BOX_VALUE) + BigInt(SERVICE_FEE_NANOERG) + BigInt(RECOMMENDED_MIN_FEE_VALUE);
   const selectedUtxos: ErgoUTXO[] = [];
   let totalAmount = BigInt(0);
 

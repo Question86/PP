@@ -3,18 +3,7 @@
 
 import type { ErgoUTXO, UnsignedTransaction, SignedTransaction } from '@/types/v2';
 
-declare global {
-  interface Window {
-    ergoConnector?: {
-      nautilus?: {
-        connect: () => Promise<boolean>;
-        isConnected: () => Promise<boolean>;
-        getContext: () => Promise<any>;
-      };
-    };
-    ergo?: any;
-  }
-}
+// Window interface is declared in @/types/index.ts
 
 export class WalletConnector {
   private static instance: WalletConnector;

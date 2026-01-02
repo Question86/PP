@@ -1,9 +1,13 @@
 // Type definitions for V2 Modular Marketplace
 import type { SnippetCategory } from '../lib/config_v2';
+import type { UnsignedTransaction, SignedTransaction, Box } from '@fleet-sdk/common';
 
 // =====================================================
 // ERGO WALLET TYPES
 // =====================================================
+
+// Re-export Fleet SDK types
+export type { UnsignedTransaction, SignedTransaction };
 
 export interface ErgoUTXO {
   boxId: string;
@@ -14,25 +18,6 @@ export interface ErgoUTXO {
   additionalRegisters: Record<string, string>;
   transactionId: string;
   index: number;
-}
-
-export interface UnsignedTransaction {
-  inputs: ErgoUTXO[];
-  outputs: {
-    value: string;
-    ergoTree: string;
-    assets?: { tokenId: string; amount: string }[];
-    additionalRegisters?: Record<string, string>;
-    creationHeight: number;
-  }[];
-  dataInputs?: ErgoUTXO[];
-}
-
-export interface SignedTransaction {
-  id: string;
-  inputs: any[];
-  dataInputs: any[];
-  outputs: any[];
 }
 
 // =====================================================

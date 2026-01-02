@@ -217,10 +217,10 @@ export function detectConflicts(
   // Phase 2: Implement category-based rules
   // Example: Can't have both 'strict format' and 'creative format'
 
-  const categories = new Set(candidates.map((c) => c.category));
+  const categories = new Set(candidates.map((c) => c.snippet_category));
 
   // Simple rule: Only one format snippet allowed (for MVP demonstration)
-  const formatSnippets = candidates.filter((c) => c.category === 'format');
+  const formatSnippets = candidates.filter((c) => c.snippet_category === 'format');
   if (formatSnippets.length > 2) {
     return {
       conflict: true,

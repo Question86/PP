@@ -16,6 +16,11 @@ export function hashPrompt(text: string): string {
 }
 
 /**
+ * Alias for hashPrompt - hashes any content
+ */
+export const hashContent = hashPrompt;
+
+/**
  * Convert hex string to Uint8Array
  */
 export function hexToBytes(hex: string): Uint8Array {
