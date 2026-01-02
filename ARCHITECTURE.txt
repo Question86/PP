@@ -1,0 +1,227 @@
+"""
+PromptPage - Ergo NFT Minting Flow Diagram
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PROMPTPAGE SYSTEM ARCHITECTURE                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+│   Browser    │         │  Next.js API │         │    MySQL     │
+│  (Frontend)  │         │   (Backend)  │         │   Database   │
+└──────┬───────┘         └──────┬───────┘         └──────┬───────┘
+       │                        │                        │
+       │                        │                        │
+       │ ┌──────────────────────────────────────────────────────────┐
+       │ │          PHASE 1: CONNECT WALLET                        │
+       │ └──────────────────────────────────────────────────────────┘
+       │                        │                        │
+       │  1. Check Nautilus     │                        │
+       │────installed?          │                        │
+       │                        │                        │
+       │  2. Request connection │                        │
+       │────to Nautilus         │                        │
+       │                        │                        │
+       │  3. Get user address   │                        │
+       │◄───(change address)    │                        │
+       │                        │                        │
+       │ ┌──────────────────────────────────────────────────────────┐
+       │ │          PHASE 2: CREATE PROMPT                         │
+       │ └──────────────────────────────────────────────────────────┘
+       │                        │                        │
+       │  4. POST /api/prompts  │                        │
+       │──────────────────────►│                        │
+       │  {ownerAddress,        │                        │
+       │   promptText}          │                        │
+       │                        │ 5. Compute hash        │
+       │                        │─(SHA-256 of text)      │
+       │                        │                        │
+       │                        │ 6. INSERT prompt       │
+       │                        │───────────────────────►│
+       │                        │                        │
+       │                        │ 7. Return promptId     │
+       │                        │◄───────────────────────│
+       │                        │                        │
+       │  8. Response:          │                        │
+       │◄───────────────────────│                        │
+       │  {promptId,            │                        │
+       │   promptHashHex,       │                        │
+       │   urlPath}             │                        │
+       │                        │                        │
+       │  9. Redirect to        │                        │
+       │────/p/[id]             │                        │
+       │                        │                        │
+       │ ┌──────────────────────────────────────────────────────────┐
+       │ │          PHASE 3: MINT NFT                              │
+       │ └──────────────────────────────────────────────────────────┘
+       │                        │                        │
+       │ 10. Get UTXOs from     │                        │
+       │─────Nautilus           │                        │
+       │                        │                        │
+       │ 11. Build unsigned TX  │                        │
+       │──(Fleet SDK)           │                        │
+       │  - Mint NFT token      │                        │
+       │  - Set registers R4-R6 │                        │
+       │  - Add service fee out │                        │
+       │  - Calculate change    │                        │
+       │                        │                        │
+       │ 12. Request signature  │                        │
+       │─────from Nautilus      │                        │
+       │                        │                        │
+       │ 13. Signed TX          │                        │
+       │◄────(hex string)       │                        │
+       │                        │                        │
+       │ 14. Submit TX          │                        │
+       │─────to blockchain      │                        │
+       │  (via Nautilus)        │                        │
+       │                        │                        │
+       │ 15. TX ID received     │                        │
+       │◄────(abc123...)        │                        │
+       │                        │                        │
+       │ ┌──────────────────────────────────────────────────────────┐
+       │ │          PHASE 4: CONFIRM MINT                          │
+       │ └──────────────────────────────────────────────────────────┘
+       │                        │                        │
+       │ 16. POST /api/prompts/ │                        │
+       │─────[id]/confirm       │                        │
+       │  {txId, tokenId}       │                        │
+       │                        │                        │
+       │                        │ 17. UPDATE status      │
+       │                        │───────────────────────►│
+       │                        │    SET mint_pending    │
+       │                        │                        │
+       │  18. Response:         │                        │
+       │◄────{ok: true}         │                        │
+       │                        │                        │
+       │ 19. Show success       │                        │
+       │─────message            │                        │
+       │                        │                        │
+       └────────────────────────┴────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ERGO TRANSACTION STRUCTURE                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+INPUTS:
+┌────────────────────────────────────────────────┐
+│  User's UTXO #1                                │
+│  ├─ BoxId: abc123...                           │
+│  ├─ Value: 50,000,000 nanoERG (0.05 ERG)      │
+│  └─ ErgoTree: P2PK(userAddress)                │
+└────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│  User's UTXO #2                                │
+│  ├─ BoxId: def456...                           │
+│  ├─ Value: 60,000,000 nanoERG (0.06 ERG)      │
+│  └─ ErgoTree: P2PK(userAddress)                │
+└────────────────────────────────────────────────┘
+
+                       ↓ TRANSACTION ↓
+
+OUTPUTS:
+┌────────────────────────────────────────────────┐
+│  OUTPUT 1: NFT Box → User Address              │
+│  ├─ Value: 2,000,000 nanoERG (0.002 ERG)      │
+│  ├─ Token: 1 NFT (tokenId=abc123...)          │
+│  │   ├─ Name: "PromptPage NFT #1"             │
+│  │   ├─ Description: "Proof of prompt..."     │
+│  │   ├─ Decimals: 0                            │
+│  │   └─ Amount: 1                              │
+│  ├─ ErgoTree: P2PK(userAddress)                │
+│  └─ Registers:                                 │
+│      ├─ R4: [bytes] promptHash (SHA-256)      │
+│      ├─ R5: [int] 1 (promptId)                │
+│      └─ R6: [bytes] "/p/1" (urlPath)          │
+└────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│  OUTPUT 2: Service Fee → Platform Address     │
+│  ├─ Value: 50,000,000 nanoERG (0.05 ERG)      │
+│  └─ ErgoTree: P2PK(platformAddress)            │
+└────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────┐
+│  OUTPUT 3: Change → User Address               │
+│  ├─ Value: 57,000,000 nanoERG (0.057 ERG)     │
+│  └─ ErgoTree: P2PK(userAddress)                │
+└────────────────────────────────────────────────┘
+
+Transaction Fee: 1,000,000 nanoERG (0.001 ERG)
+
+MATH:
+  Inputs:  50,000,000 + 60,000,000 = 110,000,000 nanoERG
+  Outputs:  2,000,000 + 50,000,000 + 57,000,000 = 109,000,000 nanoERG
+  Fee:     110,000,000 - 109,000,000 = 1,000,000 nanoERG ✓
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         VERIFICATION FLOW (FUTURE)                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. User visits /p/1
+2. Fetch prompt from database (id=1)
+3. Compute hash of prompt_text → localHash
+4. Query Ergo Explorer API:
+   GET /api/v1/boxes/unspent/byTokenId/{tokenId}
+5. Decode R4 register from returned box → chainHash
+6. Compare: localHash === chainHash
+7. Display verification result:
+   ✅ Verified: Hashes match
+   ❌ Failed: Hashes don't match
+   ⚠️  Unknown: Box not found or not yet confirmed
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         KEY SECURITY PROPERTIES                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✓ Non-Custodial
+  → Private keys never leave user's wallet
+  → All signing happens in Nautilus extension
+  → Backend cannot spend user funds
+
+✓ Transparent Costs
+  → All fees visible before signing
+  → No hidden charges
+  → User approves exact amounts
+
+✓ Cryptographic Proof
+  → Prompt hash stored immutably on-chain
+  → Anyone can verify authenticity
+  → Tamper-proof ownership record
+
+✓ Data Integrity
+  → Prompt text stored off-chain (efficient)
+  → Hash stored on-chain (proof)
+  → Verification possible at any time
+
+✓ Decentralized
+  → No central authority controls NFTs
+  → User owns the token outright
+  → Can transfer/trade freely
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         ERROR HANDLING                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Insufficient Funds
+  → Check: Total inputs >= outputs + fee
+  → Solution: Get more ERG from faucet/exchange
+  → UX: Show exact amount needed
+
+Network Mismatch
+  → Check: Nautilus network === .env ERGO_NETWORK
+  → Solution: Switch Nautilus to correct network
+  → UX: Display warning banner
+
+Transaction Rejected
+  → Check: User cancelled in Nautilus
+  → Solution: Try again
+  → UX: Show "Transaction cancelled" message
+
+Database Error
+  → Check: DATABASE_URL valid and accessible
+  → Solution: Verify MySQL connection
+  → UX: Show "Service temporarily unavailable"
+
+Wallet Not Found
+  → Check: Nautilus extension installed
+  → Solution: Install from Chrome Web Store
+  → UX: Show installation link
+
+"""
