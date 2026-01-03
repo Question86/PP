@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Flow Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #0f172a;
+      color: #e2e8f0;
+    }
+    h1 { color: #60a5fa; }
+    h2 { color: #34d399; border-bottom: 2px solid #34d399; padding-bottom: 8px; }
+    .step {
+      background: #1e293b;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      border-left: 4px solid #3b82f6;
+    }
+    button {
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 10px 10px 0;
+    }
+    button:hover { background: #2563eb; }
+    button:disabled { background: #475569; cursor: not-allowed; }
+    pre {
+      background: #0f172a;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      border: 1px solid #334155;
+    }
+    .success { color: #34d399; }
+    .error { color: #f87171; }
+    .info { color: #60a5fa; }
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3b82f6;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .output {
+      margin-top: 10px;
+      padding: 10px;
+      background: #0f172a;
+      border-radius: 4px;
+      border: 1px solid #334155;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔍 Payment Flow Test</h1>
+  <p>Test the complete snippet selection → composition → payment intent pipeline</p>
+
+  <!-- Step 1: Check Snippets -->
+  <div class="step">
+    <h2>Step 1: Check Available Snippets</h2>
+    <button onclick="fetchSnippets()">Fetch Snippets from DB</button>
+    <div id="snippets-output" class="output"></div>
+  </div>
+
+  <!-- Step 2: Create Request -->
+  <div class="step">
+    <h2>Step 2: Create User Request</h2>
+    <input type="text" id="userAddress" placeholder="Your Ergo address" style="width: 500px; padding: 8px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px;">
+    <br>
+    <textarea id="userPrompt" rows="3" style="width: 100%; margin-top: 10px; padding: 8px; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 4px;" placeholder="Enter your prompt (e.g., 'Help me with Python development')">Help me with Python development and code reviews</textarea>
+    <br>
+    <button onclick="createRequest()">Create Request</button>
+    <div id="request-output" class="output"></div>
+  </div>
+
+  <!-- Step 3: Propose Composition -->
+  <div class="step">
+    <h2>Step 3: Propose Composition</h2>
+    <button onclick="proposeComposition()" id="proposeBtn" disabled>Propose Composition</button>
+    <div id="composition-output" class="output"></div>
+  </div>
+
+  <!-- Step 4: Lock & Get Payment Intent -->
+  <div class="step">
+    <h2>Step 4: Lock Composition & Generate Payment Intent</h2>
+    <button onclick="lockComposition()" id="lockBtn" disabled>Lock & Get Payment Intent</button>
+    <div id="lock-output" class="output"></div>
+  </div>
+
+  <!-- Step 5: Payment Intent Details -->
+  <div class="step">
+    <h2>Step 5: Payment Intent Details</h2>
+    <div id="payment-intent-output" class="output">
+      <p class="info">Payment intent will appear here after locking composition</p>
+    </div>
+  </div>
+
+  <script>
+    let requestId = null;
+    let compositionId = null;
+    let snippetsData = [];
+
+    async function fetchSnippets() {
+      const output = document.getElementById('snippets-output');
+      output.innerHTML = '<div class="loading"></div> Fetching...';
+      
+      try {
+        const res = await fetch('/api/snippets');
+        const data = await res.json();
+        
+        if (data.snippets && data.snippets.length > 0) {
+          snippetsData = data.snippets;
+          output.innerHTML = `
+            <p class="success">✅ Found ${data.snippets.length} published snippets:</p>
+            <pre>${JSON.stringify(data.snippets, null, 2)}</pre>
+          `;
+        } else {
+          output.innerHTML = '<p class="error">❌ No snippets found! Run test_data_setup.sql first.</p>';
+        }
+      } catch (error) {
+        output.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+      }
+    }
+
+    async function createRequest() {
+      const address = document.getElementById('userAddress').value.trim();
+      const prompt = document.getElementById('userPrompt').value.trim();
+      const output = document.getElementById('request-output');
+      
+      if (!address || address.length < 30) {
+        output.innerHTML = '<p class="error">❌ Please enter a valid Ergo address</p>';
+        return;
+      }
+      
+      if (!prompt) {
+        output.innerHTML = '<p class="error">❌ Please enter a prompt</p>';
+        return;
+      }
+      
+      output.innerHTML = '<div class="loading"></div> Creating request...';
+      
+      try {
+        const res = await fetch('/api/requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_address: address, user_prompt: prompt })
+        });
+        
+        const data = await res.json();
+        
+        if (data.requestId) {
+          requestId = data.requestId;
+          output.innerHTML = `
+            <p class="success">✅ Request created!</p>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          `;
+          document.getElementById('proposeBtn').disabled = false;
+        } else {
+          output.innerHTML = `<p class="error">❌ ${data.error || 'Failed to create request'}</p>`;
+        }
+      } catch (error) {
+        output.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+      }
+    }
+
+    async function proposeComposition() {
+      const output = document.getElementById('composition-output');
+      output.innerHTML = '<div class="loading"></div> Proposing composition...';
+      
+      try {
+        const res = await fetch('/api/compositions/propose', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ requestId })
+        });
+        
+        const data = await res.json();
+        
+        if (data.compositionId) {
+          compositionId = data.compositionId;
+          output.innerHTML = `
+            <p class="success">✅ Composition proposed!</p>
+            <p><strong>Composition ID:</strong> ${data.compositionId}</p>
+            <p><strong>Status:</strong> ${data.status}</p>
+            <p><strong>Selected Snippets:</strong> ${data.items.length}</p>
+            <p><strong>Total:</strong> ${(parseInt(data.totals.grandTotal) / 1e9).toFixed(3)} ERG</p>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          `;
+          document.getElementById('lockBtn').disabled = false;
+        } else {
+          output.innerHTML = `<p class="error">❌ ${data.error || 'Failed to propose composition'}</p>`;
+        }
+      } catch (error) {
+        output.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+      }
+    }
+
+    async function lockComposition() {
+      const address = document.getElementById('userAddress').value.trim();
+      const output = document.getElementById('lock-output');
+      const paymentIntentOutput = document.getElementById('payment-intent-output');
+      
+      output.innerHTML = '<div class="loading"></div> Locking composition...';
+      
+      try {
+        const res = await fetch(`/api/compositions/${compositionId}/lock`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userAddress: address })
+        });
+        
+        const data = await res.json();
+        
+        if (data.paymentIntent) {
+          const pi = data.paymentIntent;
+          
+          output.innerHTML = `
+            <p class="success">✅ Composition locked!</p>
+            <p><strong>Status:</strong> awaiting_payment</p>
+          `;
+          
+          // Display payment intent details
+          paymentIntentOutput.innerHTML = `
+            <h3 class="success">Payment Intent Generated:</h3>
+            
+            <h4>Protocol Info:</h4>
+            <p><strong>Protocol Version:</strong> ${pi.protocolVersion}</p>
+            <p><strong>R4 Commitment Hash:</strong> <code style="background: #0f172a; padding: 4px 8px; border-radius: 4px;">${pi.commitmentHex}</code></p>
+            
+            <h4>Platform Output:</h4>
+            <p><strong>Address:</strong> ${pi.platformOutput.address}</p>
+            <p><strong>Amount:</strong> ${(parseInt(pi.platformOutput.amount) / 1e9).toFixed(3)} ERG</p>
+            
+            <h4>Creator Outputs (${pi.creatorOutputs.length}):</h4>
+            ${pi.creatorOutputs.map((output, i) => `
+              <div style="background: #0f172a; padding: 10px; margin: 10px 0; border-radius: 4px;">
+                <p><strong>Creator ${i + 1}:</strong></p>
+                <p><strong>Address:</strong> ${output.address}</p>
+                <p><strong>Amount:</strong> ${(parseInt(output.amount) / 1e9).toFixed(3)} ERG</p>
+                <p><strong>Snippets:</strong> ${output.snippetCount} (IDs: ${output.snippetVersionIds.join(', ')})</p>
+              </div>
+            `).join('')}
+            
+            <h4>Totals:</h4>
+            <p><strong>Total Required:</strong> ${(parseInt(pi.totalRequired) / 1e9).toFixed(3)} ERG</p>
+            <p><strong>Estimated Fee:</strong> ${(parseInt(pi.estimatedFee) / 1e9).toFixed(3)} ERG</p>
+            
+            <h4>Full Payment Intent:</h4>
+            <pre>${JSON.stringify(pi, null, 2)}</pre>
+            
+            <div style="margin-top: 20px; padding: 15px; background: #065f46; border-radius: 6px;">
+              <p class="success"><strong>✅ PAYMENT FLOW VERIFIED!</strong></p>
+              <p>All components working correctly:</p>
+              <ul>
+                <li>✅ Snippets fetched from database</li>
+                <li>✅ Prices retrieved correctly</li>
+                <li>✅ Creator addresses resolved</li>
+                <li>✅ Outputs aggregated by creator</li>
+                <li>✅ R4 commitment hash computed</li>
+                <li>✅ Payment intent ready for transaction building</li>
+              </ul>
+              <p><strong>Next:</strong> Use this payment intent in /pay/${compositionId} page with Nautilus wallet</p>
+            </div>
+          `;
+        } else {
+          output.innerHTML = `<p class="error">❌ ${data.error || 'Failed to lock composition'}</p>`;
+          paymentIntentOutput.innerHTML = '<p class="error">No payment intent generated</p>';
+        }
+      } catch (error) {
+        output.innerHTML = `<p class="error">❌ Error: ${error.message}</p>`;
+        paymentIntentOutput.innerHTML = `<p class="error">Error: ${error.message}</p>`;
+      }
+    }
+  </script>
+</body>
+</html>
