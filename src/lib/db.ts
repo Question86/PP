@@ -15,6 +15,10 @@ export function getDbPool(): mysql.Pool {
       queueLimit: 0,
       enableKeepAlive: true,
       keepAliveInitialDelay: 0,
+      authPlugins: {
+        mysql_native_password: () => () => Buffer.alloc(0),
+        caching_sha2_password: () => () => Buffer.alloc(0),
+      },
     });
   }
   return poolInstance;

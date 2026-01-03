@@ -6,7 +6,8 @@ import {
   getAggregatedCreatorPayouts,
 } from '@/lib/db-compositions';
 import { PLATFORM_ERGO_ADDRESS, PLATFORM_FEE_NANOERG } from '@/lib/config_v2';
-import type { LockCompositionRequest, LockCompositionResponse } from '@/types/v2';
+import { computeCommitment } from '@/lib/payments';
+import type { LockCompositionRequest, LockCompositionResponse, PaymentIntent } from '@/types/v2';
 
 export async function POST(
   request: NextRequest,
@@ -21,7 +22,14 @@ export async function POST(
       );
     }
 
-    const body: LockCompositionRequest = await request.json();
+    // Handle empty body gracefully
+    let body: LockCompositionRequest;
+    try {
+      const text = await request.text();
+      body = text ? JSON.parse(text) : {};
+    } catch {
+      body = {} as LockCompositionRequest;
+    }
 
     // Validate user address
     if (!body.userAddress || body.userAddress.trim().length < 10) {
@@ -63,7 +71,7 @@ export async function POST(
     const creatorPayouts = await getAggregatedCreatorPayouts(compositionId);
 
     // Build payment intent
-    const paymentIntent = {
+    const paymentIntent: PaymentIntent = {
       compositionId,
       platformOutput: {
         address: PLATFORM_ERGO_ADDRESS,
@@ -78,7 +86,12 @@ export async function POST(
       memo: compositionId.toString(),
       totalRequired: composition.total_price_nanoerg,
       estimatedFee: '1000000', // 0.001 ERG
+      protocolVersion: 1,
     };
+
+    // Compute commitment hash (R4)
+    const commitmentHex = computeCommitment(paymentIntent);
+    paymentIntent.commitmentHex = commitmentHex;
 
     // Update composition status to awaiting_payment
     await updateCompositionStatus(compositionId, 'awaiting_payment');

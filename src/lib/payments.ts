@@ -11,7 +11,8 @@ import {
 } from '@fleet-sdk/core';
 import type { Box } from '@fleet-sdk/common';
 import type { PaymentIntent, ErgoUTXO, UnsignedTransaction } from '../types/v2';
-import { ERGO } from './config_v2';
+import { ERGO, ERGO_NETWORK } from './config_v2';
+import { blake2b256, hexToBytes } from './crypto';
 
 // =====================================================
 // TYPES
@@ -109,28 +110,36 @@ export async function buildPaymentTransaction(
     txBuilder.from(convertToFleetBox(utxo));
   }
 
-  // Output 1: Platform Fee
-  txBuilder.to(
-    new OutputBuilder(
-      platformAmount,
-      paymentIntent.platformOutput.address
-    ).addTokens([]
-    ).setAdditionalRegisters({
-      R4: encodeCompositionId(paymentIntent.compositionId),
-    })
+  // Output 1: Platform Fee (with R4 commitment)
+  const platformOutput = new OutputBuilder(
+    platformAmount,
+    paymentIntent.platformOutput.address
   );
+  
+  // Set R4 to commitment hash if available
+  if (paymentIntent.commitmentHex) {
+    platformOutput.setAdditionalRegisters({
+      R4: SConstant(SColl(SByte, hexToBytes(paymentIntent.commitmentHex))),
+    });
+  }
+  
+  txBuilder.to(platformOutput);
 
   // Outputs 2..N: Creator Payouts (Aggregated)
   for (const creatorOutput of paymentIntent.creatorOutputs) {
-    txBuilder.to(
-      new OutputBuilder(
-        BigInt(creatorOutput.amount),
-        creatorOutput.address
-      ).setAdditionalRegisters({
-        R4: encodeCompositionId(paymentIntent.compositionId),
-        R5: encodeSnippetVersionIds(creatorOutput.snippetVersionIds),
-      })
+    const creatorOutputBuilder = new OutputBuilder(
+      BigInt(creatorOutput.amount),
+      creatorOutput.address
     );
+    
+    // Optionally add snippet IDs in R4 for creator outputs
+    if (creatorOutput.snippetVersionIds.length > 0) {
+      creatorOutputBuilder.setAdditionalRegisters({
+        R4: encodeSnippetVersionIds(creatorOutput.snippetVersionIds),
+      });
+    }
+    
+    txBuilder.to(creatorOutputBuilder);
   }
 
   // Configure fee and change handling
@@ -190,11 +199,57 @@ function selectUtxos(utxos: ErgoUTXO[], requiredAmount: bigint): ErgoUTXO[] {
 }
 
 // =====================================================
+// COMMITMENT PROTOCOL
+// =====================================================
+
+const PROTOCOL_VERSION = 1;
+
+/**
+ * Build canonical commitment string for payment intent
+ * Format: v=1|net=testnet|cid=123|p=addr:amt|c=addr1:amt1;addr2:amt2|s=addr1[1,2];addr2[3]
+ */
+export function buildCommitmentString(paymentIntent: PaymentIntent): string {
+  const v = PROTOCOL_VERSION;
+  const net = ERGO_NETWORK;
+  const cid = paymentIntent.compositionId;
+  const p = `${paymentIntent.platformOutput.address}:${paymentIntent.platformOutput.amount}`;
+  
+  // Sort creator outputs by address (lowercase)
+  const sortedCreators = [...paymentIntent.creatorOutputs].sort((a, b) =>
+    a.address.toLowerCase().localeCompare(b.address.toLowerCase())
+  );
+  
+  // Build creator outputs string: addr1:amt1;addr2:amt2
+  const c = sortedCreators
+    .map(co => `${co.address}:${co.amount}`)
+    .join(';');
+  
+  // Build snippet IDs string: addr1[id1,id2];addr2[id3]
+  const s = sortedCreators
+    .map(co => {
+      const sortedIds = [...co.snippetVersionIds].sort((a, b) => a - b);
+      return `${co.address}[${sortedIds.join(',')}]`;
+    })
+    .join(';');
+  
+  return `v=${v}|net=${net}|cid=${cid}|p=${p}|c=${c}|s=${s}`;
+}
+
+/**
+ * Compute commitment hash for payment intent
+ * Returns 32-byte hex string (blake2b-256)
+ */
+export function computeCommitment(paymentIntent: PaymentIntent): string {
+  const canonical = buildCommitmentString(paymentIntent);
+  return blake2b256(canonical);
+}
+
+// =====================================================
 // REGISTER ENCODING
 // =====================================================
 
 /**
- * Encode composition ID as bytes for R4 register
+ * Encode composition ID as bytes for R4 register (DEPRECATED - use encodeCommitmentR4)
  */
 function encodeCompositionId(compositionId: number) {
   const bytes = Buffer.from(compositionId.toString(), 'utf-8');

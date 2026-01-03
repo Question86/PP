@@ -4,6 +4,28 @@
 import { createHash } from 'crypto';
 
 /**
+ * Compute Blake2b-256 hash (32 bytes) from input string
+ * Uses Node.js blake2b512 and truncates to 256 bits
+ */
+export function blake2b256(text: string): string {
+  const hash = createHash('blake2b512');
+  hash.update(text, 'utf8');
+  const digest = hash.digest();
+  // Take first 32 bytes (256 bits)
+  return digest.slice(0, 32).toString('hex');
+}
+
+/**
+ * Compute Blake2b-256 hash from byte array
+ */
+export function blake2b256Bytes(bytes: Uint8Array): string {
+  const hash = createHash('blake2b512');
+  hash.update(bytes);
+  const digest = hash.digest();
+  return digest.slice(0, 32).toString('hex');
+}
+
+/**
  * Compute Blake2b-256 hash of input string
  * Falls back to SHA-256 for simplicity in Node.js environment
  */
@@ -45,6 +67,13 @@ export function bytesToHex(bytes: Uint8Array): string {
  */
 export function stringToHex(str: string): string {
   return Buffer.from(str, 'utf8').toString('hex');
+}
+
+/**
+ * Convert UTF-8 string to bytes
+ */
+export function utf8ToBytes(str: string): Uint8Array {
+  return new Uint8Array(Buffer.from(str, 'utf8'));
 }
 
 /**

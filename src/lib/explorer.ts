@@ -1,6 +1,12 @@
 // Ergo Explorer API client and transaction verification
 import type { PaymentIntent, ExplorerTransaction, VerificationResult } from '../types/v2';
 import { ERGO_EXPLORER_API } from './config_v2';
+import { computeCommitment } from './payments';
+import { bytesToHex } from './crypto';
+
+export interface VerificationOptions {
+  requireCommitment?: boolean; // If true, R4 must exist and match
+}
 
 // =====================================================
 // EXPLORER API CLIENT
@@ -59,10 +65,14 @@ export async function waitForTransaction(
  * Verify that a transaction matches the expected payment intent
  * Checks platform output and all creator outputs
  * UTXO-SAFE: Sums all outputs per address (handles multiple outputs to same address)
+ * 
+ * Options:
+ * - requireCommitment: If true, R4 register must exist and match commitment (strict mode)
  */
 export async function verifyPayment(
   txId: string,
-  paymentIntent: PaymentIntent
+  paymentIntent: PaymentIntent,
+  options: VerificationOptions = {}
 ): Promise<VerificationResult> {
   const result: VerificationResult = {
     valid: false,
@@ -122,20 +132,48 @@ export async function verifyPayment(
     }
   }
 
-  // Check R4 register for composition ID (INFORMATIONAL ONLY - does not affect payout validity)
+  // Check R4 register for commitment hash
   const platformOutput = tx.outputs.find(
     (output) => output.address.toLowerCase() === platformAddr
   );
-  if (
-    platformOutput?.additionalRegisters &&
-    platformOutput.additionalRegisters.R4
-  ) {
-    const expectedCompositionId = paymentIntent.compositionId.toString();
-    const actualCompositionId = decodeR4Register(
-      platformOutput.additionalRegisters.R4
-    );
-    if (actualCompositionId === expectedCompositionId) {
-      result.registersValid = true;
+  
+  // Compute expected commitment
+  const expectedCommitment = paymentIntent.commitmentHex || computeCommitment(paymentIntent);
+  
+  if (options.requireCommitment) {
+    // STRICT MODE: R4 must exist and match
+    if (!platformOutput?.additionalRegisters?.R4) {
+      result.errors.push('Platform output missing R4 register (strict mode)');
+      result.registersValid = false;
+    } else {
+      const actualR4 = platformOutput.additionalRegisters.R4;
+      // Decode R4: remove SConstant prefix "04" and SColl prefix "0e20" (32 bytes)
+      const r4Hex = actualR4.startsWith('0e20') ? actualR4.slice(4) : actualR4;
+      
+      if (r4Hex.toLowerCase() === expectedCommitment.toLowerCase()) {
+        result.registersValid = true;
+      } else {
+        result.errors.push(
+          `R4 commitment mismatch: expected ${expectedCommitment}, got ${r4Hex}`
+        );
+        result.registersValid = false;
+      }
+    }
+  } else {
+    // NON-STRICT MODE: R4 is optional, but validate if present
+    if (platformOutput?.additionalRegisters?.R4) {
+      const actualR4 = platformOutput.additionalRegisters.R4;
+      const r4Hex = actualR4.startsWith('0e20') ? actualR4.slice(4) : actualR4;
+      
+      if (r4Hex.toLowerCase() === expectedCommitment.toLowerCase()) {
+        result.registersValid = true;
+      } else {
+        // Mismatch in non-strict mode: warn but don't fail
+        result.registersValid = false;
+      }
+    } else {
+      // No R4 in non-strict mode: valid but no register verification
+      result.registersValid = false;
     }
   }
 
