@@ -190,16 +190,24 @@ export async function createCompositionItems(
 ): Promise<void> {
   if (items.length === 0) return;
 
-  const values = items
-    .map(
-      (item) =>
-        `(${item.composition_id}, ${item.snippet_version_id}, '${item.creator_payout_address}', ${item.price_nanoerg}, ${item.position})`
-    )
-    .join(', ');
+  // Use parameterized query to prevent SQL injection
+  const placeholders = items.map(() => '(?, ?, ?, ?, ?)').join(', ');
+  const flatValues: any[] = [];
+  
+  items.forEach(item => {
+    flatValues.push(
+      item.composition_id,
+      item.snippet_version_id,
+      item.creator_payout_address,
+      item.price_nanoerg,
+      item.position
+    );
+  });
 
   await pool.execute(
     `INSERT INTO composition_items (composition_id, snippet_version_id, creator_payout_address, price_nanoerg, position)
-     VALUES ${values}`
+     VALUES ${placeholders}`,
+    flatValues
   );
 }
 

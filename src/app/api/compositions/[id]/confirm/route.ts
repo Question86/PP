@@ -10,8 +10,9 @@ import {
 import { verifyPayment } from '@/lib/explorer';
 import { PLATFORM_ERGO_ADDRESS, PLATFORM_FEE_NANOERG } from '@/lib/config_v2';
 import { pool } from '@/lib/db';
+import { computeCommitment } from '@/lib/payments';
 import type { RowDataPacket } from 'mysql2';
-import type { ConfirmPaymentRequest, ConfirmPaymentResponse } from '@/types/v2';
+import type { ConfirmPaymentRequest, ConfirmPaymentResponse, PaymentIntent } from '@/types/v2';
 
 export async function POST(
   request: NextRequest,
@@ -36,6 +37,14 @@ export async function POST(
       );
     }
 
+    // Validate user address
+    if (!body.userAddress || body.userAddress.trim().length < 10) {
+      return NextResponse.json(
+        { error: 'Valid user address is required' },
+        { status: 400 }
+      );
+    }
+
     const txId = body.txId.trim();
 
     // Get composition
@@ -44,6 +53,14 @@ export async function POST(
       return NextResponse.json(
         { error: 'Composition not found' },
         { status: 404 }
+      );
+    }
+
+    // Verify ownership
+    if (composition.user_address.toLowerCase() !== body.userAddress.toLowerCase()) {
+      return NextResponse.json(
+        { error: 'Forbidden: Not your composition' },
+        { status: 403 }
       );
     }
 
@@ -78,7 +95,11 @@ export async function POST(
 
     // Build payment intent for verification - ONLY source: composition_items
     const [itemRows] = await pool.execute<RowDataPacket[]>(
-      `SELECT creator_payout_address, SUM(price_nanoerg) as total_amount
+      `SELECT 
+        creator_payout_address,
+        SUM(price_nanoerg) as total_amount,
+        COUNT(*) as snippet_count,
+        JSON_ARRAYAGG(snippet_version_id) as snippet_version_ids
        FROM composition_items
        WHERE composition_id = ?
        GROUP BY creator_payout_address`,
@@ -89,7 +110,7 @@ export async function POST(
       throw new Error('No composition items found - cannot verify payment');
     }
 
-    const paymentIntent = {
+    const paymentIntent: PaymentIntent = {
       compositionId,
       platformOutput: {
         address: PLATFORM_ERGO_ADDRESS,
@@ -98,16 +119,23 @@ export async function POST(
       creatorOutputs: itemRows.map((row) => ({
         address: row.creator_payout_address,
         amount: row.total_amount.toString(),
-        snippetCount: 0,
-        snippetVersionIds: [],
+        snippetCount: row.snippet_count,
+        snippetVersionIds: JSON.parse(row.snippet_version_ids || '[]'),
       })),
       memo: compositionId.toString(),
       totalRequired: composition.total_price_nanoerg,
       estimatedFee: '1000000',
+      protocolVersion: 1,
     };
 
-    // Verify transaction
-    const verificationResult = await verifyPayment(txId, paymentIntent);
+    // Compute expected commitment
+    const commitmentHex = computeCommitment(paymentIntent);
+    paymentIntent.commitmentHex = commitmentHex;
+
+    // Verify transaction (STRICT MODE: requireCommitment=true)
+    const verificationResult = await verifyPayment(txId, paymentIntent, {
+      requireCommitment: true,
+    });
 
     if (verificationResult.valid) {
       // Mark as confirmed

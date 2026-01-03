@@ -39,6 +39,8 @@ export interface PaymentIntent {
   memo: string; // compositionId as string
   totalRequired: string; // nanoERG
   estimatedFee: string; // nanoERG
+  commitmentHex?: string; // R4 commitment hash (32 bytes hex)
+  protocolVersion?: number; // Protocol version (1)
 }
 
 // =====================================================
@@ -117,6 +119,7 @@ export interface LockCompositionResponse {
 
 export interface ConfirmPaymentRequest {
   txId: string;
+  userAddress: string;
 }
 
 export interface ConfirmPaymentResponse {
