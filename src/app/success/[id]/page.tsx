@@ -7,7 +7,9 @@ interface CompositionContent {
   compositionId: number;
   status: string;
   txId: string | null;
-  content: string;
+  userPrompt: string;
+  masterPrompt: string;
+  snippetsCount: number;
   items: Array<{
     snippetTitle: string;
     content: string;
@@ -50,20 +52,20 @@ export default function SuccessPage() {
   };
 
   const handleCopy = async () => {
-    if (data?.content) {
-      await navigator.clipboard.writeText(data.content);
+    if (data?.masterPrompt) {
+      await navigator.clipboard.writeText(data.masterPrompt);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
   };
 
   const handleDownload = () => {
-    if (data?.content) {
-      const blob = new Blob([data.content], { type: 'text/plain' });
+    if (data?.masterPrompt) {
+      const blob = new Blob([data.masterPrompt], { type: 'text/plain' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `composition-${compositionId}.txt`;
+      a.download = `masterprompt-${compositionId}.txt`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -156,24 +158,37 @@ export default function SuccessPage() {
       <div className="mb-6 flex gap-4">
         <button
           onClick={handleCopy}
-          className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+          className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
         >
-          {copied ? '✓ Copied!' : '📋 Copy All Content'}
+          {copied ? (
+            <>
+              <span>✓</span>
+              <span>Copied to Clipboard!</span>
+            </>
+          ) : (
+            <>
+              <span>📋</span>
+              <span>Copy Master Prompt</span>
+            </>
+          )}
         </button>
         <button
           onClick={handleDownload}
-          className="flex-1 px-6 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition-colors"
+          className="flex-1 px-6 py-3 bg-gray-600 text-white rounded-lg font-semibold hover:bg-gray-700 transition-colors flex items-center justify-center gap-2"
         >
-          ⬇️ Download as File
+          <span>⬇️</span>
+          <span>Download</span>
         </button>
       </div>
 
-      {/* Complete Content */}
+      {/* Master Prompt Display */}
       <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Complete Prompt</h2>
+        <h2 className="text-xl font-semibold mb-4">
+          Master Prompt ({data.snippetsCount} snippet{data.snippetsCount !== 1 ? 's' : ''})
+        </h2>
         <div className="bg-gray-50 dark:bg-gray-900 border dark:border-gray-700 rounded-lg p-6">
           <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
-            {data.content}
+            {data.masterPrompt}
           </pre>
         </div>
       </div>

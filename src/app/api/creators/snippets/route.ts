@@ -1,6 +1,6 @@
 // POST /api/creators/snippets - Create new snippet
 import { NextRequest, NextResponse } from 'next/server';
-import { createSnippet } from '@/lib/db-creators';
+import { createSnippet, getCreatorByOwnerAddress } from '@/lib/db-creators';
 import { LIMITS, isValidCategory } from '@/lib/config_v2';
 import type {
   CreateSnippetRequest,
@@ -9,14 +9,21 @@ import type {
 
 export async function POST(request: NextRequest) {
   try {
-    const body: CreateSnippetRequest = await request.json();
+    const body: CreateSnippetRequest & { ownerAddress: string } = await request.json();
 
-    // Get creator ID from header (MVP simple auth)
-    const creatorId = request.headers.get('x-creator-id');
-    if (!creatorId || isNaN(parseInt(creatorId))) {
+    // Authorization: Find creator by ownerAddress
+    if (!body.ownerAddress || body.ownerAddress.trim().length === 0) {
       return NextResponse.json(
-        { error: 'Unauthorized: X-Creator-Id header required' },
+        { error: 'Unauthorized: ownerAddress required in request body' },
         { status: 401 }
+      );
+    }
+
+    const creator = await getCreatorByOwnerAddress(body.ownerAddress);
+    if (!creator) {
+      return NextResponse.json(
+        { error: 'Creator not found. Please register first.' },
+        { status: 404 }
       );
     }
 
@@ -44,7 +51,7 @@ export async function POST(request: NextRequest) {
 
     // Create snippet
     const snippetId = await createSnippet({
-      creator_id: parseInt(creatorId),
+      creator_id: creator.id,
       title: body.title.trim(),
       summary: body.summary?.trim(),
       category: body.category,

@@ -1,6 +1,6 @@
 // POST /api/creators/snippets/[id]/versions - Create new version
 import { NextRequest, NextResponse } from 'next/server';
-import { createSnippetVersion, getSnippetById } from '@/lib/db-creators';
+import { createSnippetVersion, getSnippetById, getCreatorByOwnerAddress } from '@/lib/db-creators';
 import { LIMITS } from '@/lib/config_v2';
 import { hashContent } from '@/lib/crypto';
 import type {
@@ -21,14 +21,21 @@ export async function POST(
       );
     }
 
-    const body: CreateVersionRequest = await request.json();
+    const body: CreateVersionRequest & { ownerAddress: string } = await request.json();
 
-    // Get creator ID from header
-    const creatorId = request.headers.get('x-creator-id');
-    if (!creatorId || isNaN(parseInt(creatorId))) {
+    // Authorization: Find creator by ownerAddress
+    if (!body.ownerAddress || body.ownerAddress.trim().length === 0) {
       return NextResponse.json(
-        { error: 'Unauthorized: X-Creator-Id header required' },
+        { error: 'Unauthorized: ownerAddress required in request body' },
         { status: 401 }
+      );
+    }
+
+    const creator = await getCreatorByOwnerAddress(body.ownerAddress);
+    if (!creator) {
+      return NextResponse.json(
+        { error: 'Creator not found. Please register first.' },
+        { status: 404 }
       );
     }
 
@@ -41,7 +48,7 @@ export async function POST(
       );
     }
 
-    if (snippet.creator_id !== parseInt(creatorId)) {
+    if (snippet.creator_id !== creator.id) {
       return NextResponse.json(
         { error: 'Forbidden: Not your snippet' },
         { status: 403 }

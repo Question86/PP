@@ -4,6 +4,7 @@ import {
   getSnippetById,
   updateSnippetStatus,
   getSnippetVersionsBySnippet,
+  getCreatorByOwnerAddress,
 } from '@/lib/db-creators';
 import type { PublishSnippetResponse } from '@/types/v2';
 
@@ -20,12 +21,21 @@ export async function POST(
       );
     }
 
-    // Get creator ID from header
-    const creatorId = request.headers.get('x-creator-id');
-    if (!creatorId || isNaN(parseInt(creatorId))) {
+    const body: { ownerAddress: string } = await request.json();
+
+    // Authorization: Find creator by ownerAddress
+    if (!body.ownerAddress || body.ownerAddress.trim().length === 0) {
       return NextResponse.json(
-        { error: 'Unauthorized: X-Creator-Id header required' },
+        { error: 'Unauthorized: ownerAddress required in request body' },
         { status: 401 }
+      );
+    }
+
+    const creator = await getCreatorByOwnerAddress(body.ownerAddress);
+    if (!creator) {
+      return NextResponse.json(
+        { error: 'Creator not found. Please register first.' },
+        { status: 404 }
       );
     }
 
@@ -38,7 +48,7 @@ export async function POST(
       );
     }
 
-    if (snippet.creator_id !== parseInt(creatorId)) {
+    if (snippet.creator_id !== creator.id) {
       return NextResponse.json(
         { error: 'Forbidden: Not your snippet' },
         { status: 403 }

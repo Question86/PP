@@ -67,6 +67,10 @@ export const ERGO_EXPLORER_API =
     ? 'https://api-testnet.ergoplatform.com'
     : 'https://api.ergoplatform.com');
 
+export const MIN_CONFIRMATIONS = parseInt(
+  process.env.MIN_CONFIRMATIONS || '1'
+);
+
 // =====================================================
 // APPLICATION SETTINGS
 // =====================================================

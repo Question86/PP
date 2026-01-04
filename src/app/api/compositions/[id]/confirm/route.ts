@@ -6,9 +6,10 @@ import {
   createPayment,
   updatePaymentStatus,
   getPaymentByTxId,
+  upsertPayment,
 } from '@/lib/db-compositions';
-import { verifyPayment } from '@/lib/explorer';
-import { PLATFORM_ERGO_ADDRESS, PLATFORM_FEE_NANOERG } from '@/lib/config_v2';
+import { verifyPayment, getTransaction } from '@/lib/explorer';
+import { PLATFORM_ERGO_ADDRESS, PLATFORM_FEE_NANOERG, MIN_CONFIRMATIONS } from '@/lib/config_v2';
 import { pool } from '@/lib/db';
 import { computeCommitment } from '@/lib/payments';
 import type { RowDataPacket } from 'mysql2';
@@ -64,8 +65,18 @@ export async function POST(
       );
     }
 
-    // Check status
-    if (composition.status !== 'awaiting_payment') {
+    // Check status - allow awaiting_payment or paid with same txId
+    if (composition.status === 'paid' && composition.tx_id !== txId) {
+      return NextResponse.json(
+        {
+          error: 'Composition already paid with different transaction',
+          existingTxId: composition.tx_id,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (composition.status !== 'awaiting_payment' && composition.status !== 'paid') {
       return NextResponse.json(
         {
           error: `Composition is in ${composition.status} status`,
@@ -75,20 +86,49 @@ export async function POST(
       );
     }
 
-    // Check if payment already exists
-    const existingPayment = await getPaymentByTxId(txId);
-    if (existingPayment) {
+    // Check confirmations FIRST - Fetch tx from Explorer
+    const tx = await getTransaction(txId);
+    if (!tx) {
       return NextResponse.json(
-        {
-          error: 'Transaction already submitted',
-          status: existingPayment.status,
-        },
-        { status: 409 }
+        { error: 'Transaction not found on Explorer' },
+        { status: 404 }
       );
     }
 
-    // Create payment record
-    const paymentId = await createPayment({
+    console.log(`[Confirm] Transaction ${txId} has ${tx.confirmationsCount} confirmations (required: ${MIN_CONFIRMATIONS})`);
+
+    // If not enough confirmations, return 202 Accepted with pending status
+    if (tx.confirmationsCount < MIN_CONFIRMATIONS) {
+      // Upsert payment record with status='submitted' if not exists
+      await upsertPayment({
+        composition_id: compositionId,
+        tx_id: txId,
+      });
+
+      return NextResponse.json(
+        {
+          status: 'pending',
+          confirmationsCount: tx.confirmationsCount,
+          requiredConfirmations: MIN_CONFIRMATIONS,
+          message: `Transaction pending: ${tx.confirmationsCount}/${MIN_CONFIRMATIONS} confirmations`,
+        },
+        { status: 202 }
+      );
+    }
+
+    // Transaction is confirmed - proceed with verification
+    // Check if payment already confirmed
+    const existingPayment = await getPaymentByTxId(txId);
+    if (existingPayment && existingPayment.status === 'confirmed') {
+      return NextResponse.json({
+        ok: true,
+        status: 'paid',
+        message: 'Payment already confirmed',
+      });
+    }
+
+    // Upsert payment record (will be updated to confirmed below)
+    await upsertPayment({
       composition_id: compositionId,
       tx_id: txId,
     });

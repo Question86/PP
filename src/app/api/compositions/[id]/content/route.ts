@@ -37,6 +37,17 @@ export async function GET(
       );
     }
 
+    // Fetch user prompt from request
+    const [requestRows] = await pool.execute<RowDataPacket[]>(
+      `SELECT user_prompt
+       FROM requests r
+       INNER JOIN compositions c ON c.request_id = r.id
+       WHERE c.id = ?`,
+      [compositionId]
+    );
+
+    const userPrompt = requestRows.length > 0 ? requestRows[0].user_prompt : '';
+
     // Fetch snippet content
     const [items] = await pool.execute<RowDataPacket[]>(
       `SELECT 
@@ -61,18 +72,27 @@ export async function GET(
     }
 
     // Concatenate all snippets with separators
-    const fullContent = items
+    const snippetsContent = items
       .map((item, index) => {
-        const separator = index > 0 ? '\n\n---\n\n' : '';
-        return `${separator}# ${item.snippet_title} (by ${item.creator_name})\n\n${item.content}`;
+        return `### Snippet ${index + 1}: ${item.snippet_title}
+Creator: ${item.creator_name}
+
+${item.content}`;
       })
-      .join('');
+      .join('\n\n---\n\n');
+
+    // Build masterprompt: snippets + user request
+    const masterPrompt = userPrompt 
+      ? `${snippetsContent}\n\n---\n\n### User Request:\n${userPrompt}`
+      : snippetsContent;
 
     return NextResponse.json({
       compositionId,
       status: composition.status,
       txId: composition.tx_id,
-      content: fullContent,
+      userPrompt,
+      masterPrompt,
+      snippetsCount: items.length,
       items: items.map((item) => ({
         snippetTitle: item.snippet_title,
         content: item.content,

@@ -6,10 +6,11 @@ TRUNCATE TABLE snippet_versions;
 TRUNCATE TABLE snippets;
 TRUNCATE TABLE creators;
 
--- Insert test creators (using placeholder testnet addresses)
-INSERT INTO creators (display_name, payout_address) VALUES 
-  ('TestCreator1', '3WwdXmYP1v8vRlP4M8fVVzVzWvZpJmxT1yKnGqAqTGYQvD7KqH5L'),
-  ('TestCreator2', '3WwdXmYP1v8vRlP4M8fVVzVzWvZpJmxT1yKnGqAqTGYQvD7KqH5M');
+-- Insert test creators with owner_address (using placeholder testnet addresses)
+-- Note: owner_address = wallet identity, payout_address = payment destination
+INSERT INTO creators (owner_address, display_name, payout_address) VALUES 
+  ('3WwdXmYP1v8vRlP4M8fVVzVzWvZpJmxT1yKnGqAqTGYQvD7KqH5L', 'TestCreator1', '3WwdXmYP1v8vRlP4M8fVVzVzWvZpJmxT1yKnGqAqTGYQvD7KqH5L'),
+  ('3WwdXmYP1v8vRlP4M8fVVzVzWvZpJmxT1yKnGqAqTGYQvD7KqH5M', 'TestCreator2', '3WwdXmYP1v8vRlP4M8fVVzVzWvZpJmxT1yKnGqAqTGYQvD7KqH5M');
 
 -- Insert test snippets (category 'system' changed to 'context' - valid enum value)
 INSERT INTO snippets (creator_id, title, summary, category, status) VALUES
@@ -25,7 +26,7 @@ INSERT INTO snippet_versions (snippet_id, version, content, content_hash, price_
 
 -- Verify setup
 SELECT 'Database setup complete' as status;
-SELECT s.id as snippet_id, s.title, sv.version, sv.price_nanoerg, c.display_name, c.payout_address 
+SELECT s.id as snippet_id, s.title, sv.version, sv.price_nanoerg, c.display_name, c.owner_address, c.payout_address 
 FROM snippets s 
 JOIN snippet_versions sv ON s.id = sv.snippet_id 
 JOIN creators c ON s.creator_id = c.id;

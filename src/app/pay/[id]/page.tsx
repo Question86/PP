@@ -38,6 +38,9 @@ export default function PaymentPage() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [txId, setTxId] = useState('');
+  const [paymentState, setPaymentState] = useState<'idle' | 'submitted' | 'pending' | 'confirmed'>('idle');
+  const [confirmations, setConfirmations] = useState(0);
+  const [requiredConfirmations, setRequiredConfirmations] = useState(1);
 
   useEffect(() => {
     if (compositionId) {
@@ -123,45 +126,96 @@ export default function PaymentPage() {
       setStatus('Submitting to blockchain...');
       const submittedTxId = await wallet.submitTx(signedTx);
       setTxId(submittedTxId);
+      setPaymentState('submitted');
 
       console.log('Transaction submitted:', submittedTxId);
 
-      // Confirm with backend
-      setStatus('Confirming payment with backend...');
-      const confirmResponse = await fetch(
-        `/api/compositions/${compositionId}/confirm`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            txId: submittedTxId,
-            userAddress: wallet.address
-          }),
-        }
-      );
+      // Start polling for confirmations
+      setStatus('Transaction submitted, waiting for confirmations...');
+      await pollForConfirmations(submittedTxId);
 
-      if (!confirmResponse.ok) {
-        const errorData = await confirmResponse.json();
-        throw new Error(errorData.error || 'Payment confirmation failed');
-      }
-
-      const confirmData = await confirmResponse.json();
-      
-      if (confirmData.ok) {
-        setStatus('Payment confirmed! Redirecting...');
-        setTimeout(() => {
-          router.push(`/success/${compositionId}`);
-        }, 2000);
-      } else {
-        throw new Error('Payment verification failed');
-      }
     } catch (err: any) {
       console.error('Payment error:', err);
       setError(err.message || 'Payment failed');
       setStatus('');
+      setPaymentState('idle');
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const pollForConfirmations = async (txId: string) => {
+    const POLL_INTERVAL = 5000; // 5 seconds
+    const MAX_ATTEMPTS = 120; // 10 minutes
+    
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        // Fetch transaction from Explorer
+        const response = await fetch(
+          `https://api-testnet.ergoplatform.com/api/v1/transactions/${txId}`
+        );
+
+        if (response.ok) {
+          const tx = await response.json();
+          const currentConfirmations = tx.confirmationsCount || 0;
+          setConfirmations(currentConfirmations);
+
+          console.log(`Polling: ${currentConfirmations} confirmations`);
+
+          // Check if we have enough confirmations
+          if (currentConfirmations >= 1) {
+            setPaymentState('pending');
+            setStatus(`Transaction has ${currentConfirmations} confirmation(s), verifying...`);
+
+            // Call confirm endpoint
+            const confirmResponse = await fetch(
+              `/api/compositions/${compositionId}/confirm`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                  txId: txId,
+                  userAddress: wallet.address
+                }),
+              }
+            );
+
+            const confirmData = await confirmResponse.json();
+
+            if (confirmResponse.status === 202) {
+              // Still pending, continue polling
+              setPaymentState('pending');
+              setStatus(confirmData.message || 'Waiting for confirmations...');
+              setRequiredConfirmations(confirmData.requiredConfirmations || 1);
+            } else if (confirmResponse.ok && confirmData.ok) {
+              // Payment confirmed!
+              setPaymentState('confirmed');
+              setStatus('Payment confirmed! Redirecting...');
+              setTimeout(() => {
+                router.push(`/success/${compositionId}`);
+              }, 2000);
+              return; // Exit polling
+            } else {
+              throw new Error(confirmData.error || 'Payment verification failed');
+            }
+          } else {
+            // No confirmations yet
+            setPaymentState('submitted');
+            setStatus(`Transaction submitted (${currentConfirmations} confirmations)...`);
+          }
+        }
+      } catch (err: any) {
+        console.error('Polling error:', err);
+        // Continue polling even on errors
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL));
+    }
+
+    // Timeout
+    setError('Transaction confirmation timeout. Please check the transaction manually.');
+    setPaymentState('submitted');
   };
 
   if (!composition) {
@@ -302,11 +356,42 @@ export default function PaymentPage() {
         )}
 
         {txId && (
-          <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-            <p className="font-semibold text-green-800 dark:text-green-200 mb-2">
-              Transaction Submitted
-            </p>
-            <p className="text-sm font-mono text-green-700 dark:text-green-300 break-all">
+          <div className={`p-4 border rounded-lg ${
+            paymentState === 'confirmed' 
+              ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+              : paymentState === 'pending'
+              ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+              : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'
+          }`}>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <span className={`w-3 h-3 rounded-full ${
+                  paymentState === 'confirmed' 
+                    ? 'bg-green-500'
+                    : paymentState === 'pending'
+                    ? 'bg-yellow-500 animate-pulse'
+                    : 'bg-blue-500 animate-pulse'
+                }`} />
+                <p className={`font-semibold ${
+                  paymentState === 'confirmed' 
+                    ? 'text-green-800 dark:text-green-200'
+                    : paymentState === 'pending'
+                    ? 'text-yellow-800 dark:text-yellow-200'
+                    : 'text-blue-800 dark:text-blue-200'
+                }`}>
+                  {paymentState === 'confirmed' && 'Payment Confirmed ✓'}
+                  {paymentState === 'pending' && `Confirming Payment (${confirmations}/${requiredConfirmations} confirmations)`}
+                  {paymentState === 'submitted' && 'Transaction Submitted'}
+                </p>
+              </div>
+            </div>
+            <p className={`text-sm font-mono break-all ${
+              paymentState === 'confirmed' 
+                ? 'text-green-700 dark:text-green-300'
+                : paymentState === 'pending'
+                ? 'text-yellow-700 dark:text-yellow-300'
+                : 'text-blue-700 dark:text-blue-300'
+            }`}>
               {txId}
             </p>
             <a
@@ -317,6 +402,16 @@ export default function PaymentPage() {
             >
               View on Explorer →
             </a>
+            {paymentState === 'submitted' && (
+              <p className="text-sm mt-2 text-gray-600 dark:text-gray-400">
+                Waiting for transaction to appear in a block...
+              </p>
+            )}
+            {paymentState === 'pending' && (
+              <p className="text-sm mt-2 text-gray-600 dark:text-gray-400">
+                Verifying payment outputs and commitment hash...
+              </p>
+            )}
           </div>
         )}
       </div>

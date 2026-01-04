@@ -1,0 +1,202 @@
+================================================================================
+PUSH COMMAND SEQUENCE - READY FOR EXECUTION
+================================================================================
+
+Status: ✅ PRE-VERIFIED (0 TypeScript errors, .env.local gitignored)
+Target: origin/main (3 commits)
+Estimated Time: 2 minutes
+
+================================================================================
+STEP 1: VERIFY NO SECRETS STAGED
+================================================================================
+
+# Check .env.local is NOT tracked
+git ls-files .env.local
+
+# Expected output: (empty)
+# If output shows ".env.local", STOP and run:
+#   git rm --cached .env.local
+#   git commit -m "chore: remove .env.local from tracking"
+
+# Verify gitignore covers it
+git check-ignore .env.local
+
+# Expected output: .env.local
+
+================================================================================
+STEP 2: COMMIT 1 - SECURITY FIXES (P0)
+================================================================================
+
+# Stage security fix files
+git add src/lib/db-compositions.ts
+git add src/types/v2.ts
+git add src/app/api/compositions/[id]/confirm/route.ts
+git add src/app/pay/[id]/page.tsx
+
+# Verify staged files
+git status --short
+
+# Expected output:
+# A  src/lib/db-compositions.ts
+# A  src/types/v2.ts
+# A  src/app/api/compositions/[id]/confirm/route.ts
+# A  src/app/pay/[id]/page.tsx
+
+# Commit
+git commit -m "security: fix P0 SQL injection and IDOR vulnerabilities
+
+- Fix SQL injection in createCompositionItems() via parameterized query
+- Add ownership verification to confirm endpoint (prevent IDOR attack)
+- Update ConfirmPaymentRequest to include userAddress field
+- Update pay page to send userAddress in confirm request
+
+Vulnerabilities resolved:
+- HIGH: SQL injection in composition item creation
+- HIGH: IDOR allowing payment hijacking
+
+Files: 4 changed, ~90 insertions, ~15 deletions"
+
+================================================================================
+STEP 3: COMMIT 2 - R4 COMMITMENT PROTOCOL
+================================================================================
+
+# Stage R4 protocol files
+git add src/lib/crypto.ts
+git add src/lib/payments.ts
+git add src/lib/explorer.ts
+git add src/app/api/compositions/[id]/lock/route.ts
+git add src/lib/db.ts
+
+# Verify staged files
+git status --short
+
+# Expected output:
+# A  src/lib/crypto.ts
+# A  src/lib/payments.ts
+# A  src/lib/explorer.ts
+# A  src/app/api/compositions/[id]/lock/route.ts
+# A  src/lib/db.ts
+
+# Commit
+git commit -m "feat: implement R4 commitment protocol for payment verification
+
+Implement Blake2b-256 commitment hash stored in R4 register:
+- blake2b256() hash function in crypto.ts
+- buildCommitmentString() canonical format builder
+- computeCommitment() R4 hash generation
+- R4 register encoding in platform UTXO outputs
+- Strict R4 verification with UTXO-safe summation
+
+Protocol:
+- Canonical format: protocol|compositionId|totalNanoErg|creatorPayouts
+- Hash algorithm: Blake2b-256 (32 bytes)
+- Verification: Sum outputs per creator address, compare R4 hash
+
+Files: 5 changed, ~200 insertions, ~30 deletions"
+
+================================================================================
+STEP 4: COMMIT 3 - UI AND FEATURES
+================================================================================
+
+# Stage UI and feature files
+git add src/app/browse/
+git add src/app/pay/
+git add src/app/success/
+git add src/app/home/
+git add src/app/api/snippets/
+git add src/app/api/compositions/[id]/content/
+git add src/hooks/
+git add public/test-payment-flow.html
+git add scripts/test-commitment.ts
+git add scripts/test-payment-flow.ts
+git add test_data_setup.sql
+
+# Verify staged files
+git status --short
+
+# Expected output:
+# A  src/app/browse/page.tsx
+# A  src/app/pay/[id]/page.tsx
+# A  src/app/success/[id]/page.tsx
+# A  src/app/home/page.tsx
+# A  src/app/api/snippets/route.ts
+# A  src/app/api/compositions/[id]/content/route.ts
+# A  src/hooks/useWallet.ts
+# A  public/test-payment-flow.html
+# A  scripts/test-commitment.ts
+# A  scripts/test-payment-flow.ts
+# A  test_data_setup.sql
+
+# Commit
+git commit -m "feat: add complete payment UI flow and API endpoints
+
+Complete payment user experience:
+- Browse page: Snippet selection and composition builder
+- Pay page: Transaction creation with R4 commitment display
+- Success page: Content delivery after payment verification
+- Home page: Landing page with feature highlights
+
+New API endpoints:
+- GET /api/snippets: List published snippets
+- GET /api/compositions/[id]/content: Deliver content after payment
+
+Infrastructure:
+- useWallet hook: Nautilus wallet integration
+- Test utilities: Payment flow testing scripts
+- Test page: Manual testing interface
+
+Files: 11+ new files, ~1500 insertions"
+
+================================================================================
+STEP 5: PUSH TO MAIN
+================================================================================
+
+# Push all commits
+git push origin main
+
+# Expected output:
+# Enumerating objects: X, done.
+# Counting objects: 100% (X/X), done.
+# Writing objects: 100% (X/X), Y KiB | Z MiB/s, done.
+# Total X (delta Y), reused 0 (delta 0)
+# To github.com:your-repo/promptpage.git
+#    abc1234..def5678  main -> main
+
+================================================================================
+STEP 6: POST-PUSH VERIFICATION (2 MINUTES MAX)
+================================================================================
+
+☐ Verify GitHub shows 3 new commits
+  Command: Open https://github.com/YOUR-USERNAME/promptpage/commits/main
+  Expected: See security fix, protocol, and UI commits
+
+☐ Verify build passes locally
+  Command: npm run build
+  Expected: Build completed in X seconds, 13 routes generated
+
+☐ Verify dev server starts
+  Command: npm run dev
+  Expected: Server running on http://localhost:3000
+
+☐ Verify security fix visible in GitHub
+  Command: Open latest commit diff on GitHub
+  Expected: See parameterized query in db-compositions.ts
+
+☐ Quick smoke test (optional, if server running)
+  Navigate: http://localhost:3000/browse
+  Expected: Page loads without console errors
+
+================================================================================
+EXECUTION SUMMARY
+================================================================================
+
+Commits to Push: 3
+Total Files: 20+
+Security Fixes: 2 (SQL injection, IDOR)
+New Features: R4 protocol, Complete UI flow, API endpoints
+Estimated Push Time: 30-60 seconds
+Estimated Verification: 60-90 seconds
+
+================================================================================
+READY TO EXECUTE: Run commands from STEP 1 through STEP 6
+================================================================================

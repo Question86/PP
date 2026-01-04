@@ -239,6 +239,19 @@ export async function createPayment(data: {
   return result.insertId;
 }
 
+export async function upsertPayment(data: {
+  composition_id: number;
+  tx_id: string;
+}): Promise<number> {
+  const [result] = await pool.execute<ResultSetHeader>(
+    `INSERT INTO payments (composition_id, tx_id, status)
+     VALUES (?, ?, 'submitted')
+     ON DUPLICATE KEY UPDATE tx_id = VALUES(tx_id)`,
+    [data.composition_id, data.tx_id]
+  );
+  return result.insertId;
+}
+
 export async function getPaymentByTxId(txId: string): Promise<Payment | null> {
   const [rows] = await pool.execute<(Payment & RowDataPacket)[]>(
     `SELECT * FROM payments WHERE tx_id = ?`,

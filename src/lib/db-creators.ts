@@ -10,6 +10,7 @@ import type { SnippetCategory } from './config_v2';
 export interface Creator {
   id: number;
   display_name: string;
+  owner_address: string;
   payout_address: string;
   bio: string | null;
   created_at: Date;
@@ -48,14 +49,15 @@ export interface SnippetWithVersion extends Snippet {
 // =====================================================
 
 export async function createCreator(data: {
+  owner_address: string;
   display_name: string;
   payout_address: string;
   bio?: string;
 }): Promise<number> {
   const [result] = await pool.execute<ResultSetHeader>(
-    `INSERT INTO creators (display_name, payout_address, bio)
-     VALUES (?, ?, ?)`,
-    [data.display_name, data.payout_address, data.bio || null]
+    `INSERT INTO creators (owner_address, display_name, payout_address, bio)
+     VALUES (?, ?, ?, ?)`,
+    [data.owner_address, data.display_name, data.payout_address, data.bio || null]
   );
   return result.insertId;
 }
@@ -73,6 +75,16 @@ export async function getCreatorByPayoutAddress(
 ): Promise<Creator | null> {
   const [rows] = await pool.execute<(Creator & RowDataPacket)[]>(
     `SELECT * FROM creators WHERE payout_address = ?`,
+    [address]
+  );
+  return rows[0] || null;
+}
+
+export async function getCreatorByOwnerAddress(
+  address: string
+): Promise<Creator | null> {
+  const [rows] = await pool.execute<(Creator & RowDataPacket)[]>(
+    `SELECT * FROM creators WHERE owner_address = ?`,
     [address]
   );
   return rows[0] || null;
